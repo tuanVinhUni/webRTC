@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Streaming</title>
+</head>
+<body>
+    <h1>WebRTC Stream Receiver</h1>
+    <video id="remoteVideo" autoplay playsinline></video> <!-- Nơi phát lại stream -->
+    
+    <script>
+        const socket = new WebSocket('ws://localhost:3000/ws'); // Kết nối tới server WebSocket
+
+        const peerConnection = new RTCPeerConnection();
+
+        // Khi nhận được track mới từ PeerConnection (stream từ client khác)
+        peerConnection.ontrack = event => {
+            const [remoteStream] = event.streams;
+            document.getElementById('remoteVideo').srcObject = remoteStream;  // Phát lại stream trên thẻ video
+        };
+
+        // Xử lý khi nhận được candidate ICE mới từ WebSocket server
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) {
+                socket.send(JSON.stringify({
+                    type: 'candidate',
+                    candidate: event.candidate
+                }));
+            }
+        };
+
+        // Khi kết nối với WebSocket server
+        socket.onopen = () => {
+            console.log('Connected to WebSocket server');
+        };
+
+        // Nhận tin nhắn từ server WebSocket
+        socket.onmessage = event => {
+            const message = JSON.parse(event.data);
+
+            switch (message.type) {
+                case 'offer':
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp))
+                        .then(() => peerConnection.createAnswer())
+                        .then(answer => peerConnection.setLocalDescription(answer))
+                        .then(() => {
+                            socket.send(JSON.stringify({
+                                type: 'answer',
+                                sdp: peerConnection.localDescription
+                            }));
+                        });
+                    break;
+                case 'answer':
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp));
+                    break;
+                case 'candidate':
+                    peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+                    break;
+                default:
+                    console.log('Unknown message type:', message.type);
+            }
+        };
+
+        // Khi server gửi thông báo đóng kết nối hoặc bị ngắt kết nối
+        socket.onclose = () => {
+            console.log('Disconnected from WebSocket server');
+        };
+    </script>
+</body>
+</html>
